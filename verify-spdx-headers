@@ -95,6 +95,13 @@ class Index:
             name = self.INTERPRETERS.get(interpreter)
         return self.__languages.get(name)
 
+    def scan_file(self, file):
+        language = self.language(file)
+        if language is None:
+            return None
+        # Parse the SPDX header for the language.
+        return language.license(file)
+
     def scan(self, root):
         IGNORE_DIRS = { ".git" }
 
@@ -120,6 +127,15 @@ class Index:
                 # Parse the SPDX header for the language.
                 yield (path, language.license(path))
 
+def check_license(license, valid_licenses, path):
+    if license not in valid_licenses:
+        if license == None:
+            print(f"NO SPDX {path}")
+        else:
+            print(f"{license:16} {path}")
+        return 1
+    return 0
+
 if __name__ == '__main__':
     import sys
     import json
@@ -136,13 +152,16 @@ if __name__ == '__main__':
             raise SystemExit(1)
 
     rv = 0
+
     index = Index()
-    for (path, license) in index.scan("."):
-        if license not in licenses:
-            if license == None:
-                print(f"NO SPDX {path}")
-            else:
-                print(f"{license:16} {path}")
-            rv = 1
+    path_to_scan = sys.argv[2:]
+    if path_to_scan is None:
+        path_to_scan = '.'
+    if os.path.isdir(path_to_scan):
+        for (path, license) in index.scan(path_to_scan):
+            rv |= check_license(license, licenses, path)
+    else:
+        license = index.scan_file(path_to_scan)
+        rv |= check_license(license, licenses, file)
 
     raise SystemExit(rv)

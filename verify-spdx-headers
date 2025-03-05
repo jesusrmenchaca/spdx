@@ -6,32 +6,51 @@ import re
 
 SLUG = re.compile('[- a-zA-Z0-9.]+')
 SPDX = re.compile(rf'SPDX-License-Identifier:\s+({SLUG.pattern})')
+CRIGHT = re.compile(rf'Copyright (?:\([Cc]\))?\s+[0-9-]+\s+([a-zA-Z0-9\s,/&]+).?')
 
 class Language:
     def __init__(self, *comments, shebang=False):
         assert(isinstance(shebang, bool))
         self.__shebang = shebang
 
-        self.__match = []
+        self.__match_license = []
+        self.__match_copyright = []
         for comment in comments:
             (init, fini) = (comment, '')
             if isinstance(comment, tuple):
                 (init, fini) = comment
 
             pattern = rf"^{init}\s*{SPDX.pattern}\s*{fini}\s*$"
-            self.__match.append(re.compile(pattern))
+            self.__match_license.append(re.compile(pattern))
 
-    def license(self, path):
+            pattern = rf"^{init}\s*{CRIGHT.pattern}\s*{fini}\s*$"
+            self.__match_copyright.append(re.compile(pattern))
+
+    def license_copyright(self, path):
         "Find the license from the SPDX header."
+        res = [None, None]
+        matched_license = matched_copyright = False
         with open(path) as f:
             lines = f.readlines()
             for line in lines:
-                for matcher in self.__match:
-                    match = matcher.match(line)
-                    if match:
-                        return match.group(1)
+                if matched_license and matched_copyright:
+                    break
+                if not matched_license:
+                    for matcher in self.__match_license:
+                        match = matcher.match(line)
+                        if match:
+                            res[0] = match.group(1)
+                            matched_license = True
+                            break
+                if not matched_copyright:
+                    for matcher in self.__match_copyright:
+                        match = matcher.match(line)
+                        if match:
+                            res[1] = match.group(1)
+                            matched_copyright = True
+                            break
 
-        return None
+        return res
 
 class Index:
     INTERPRETERS = {
@@ -101,9 +120,9 @@ class Index:
     def scan_file(self, file):
         language = self.language(file)
         if language is None:
-            return None
+            return None, None
         # Parse the SPDX header for the language.
-        return language.license(file)
+        return language.license_copyright(file)
 
     def scan(self, root):
 
@@ -126,14 +145,26 @@ class Index:
                     continue
 
                 # Parse the SPDX header for the language.
-                yield (path, language.license(path))
+                yield (path, language.license_copyright(path))
 
 def check_license(license, valid_licenses, path):
     if license not in valid_licenses:
-        if license == None:
+        if license is None:
             print(f"NO SPDX {path}")
         else:
-            print(f"{license:16} {path}")
+            print(f"{license:16} {path} not in {valid_licenses}")
+        return 1
+    return 0
+
+def check_copyright(copyright, valid_holders, path):
+    # Can't check unless we have valid holders.
+    if not valid_holders:
+        return 0
+    if copyright not in valid_holders:
+        if copyright is None:
+            print(f"NO Copyright! {path}")
+        else:
+            print(f"Unexpected Copyright holder {copyright:16} {path} not in {valid_holders}")
         return 1
     return 0
 
@@ -141,9 +172,15 @@ if __name__ == '__main__':
     import sys
     import json
 
-    # Validate the arguments
+    # Get arguments thru environment
     ignore = os.getenv('IGNORE_DIRS')
     licenses = os.getenv('INPUT_LICENSES')
+    copyright_holders = os.getenv('COPYRIGHT_HOLDERS')
+    # Load + Validate the arguments
+    if copyright_holders:
+        copyright_holders = json.load(copyright_holders)
+    if ignore:
+        ignore = json.load(ignore)
     if licenses is None:
         licenses = sys.argv[1:]
     else:
@@ -162,8 +199,10 @@ if __name__ == '__main__':
     if os.path.isdir(path_to_scan):
         for (path, license) in index.scan(path_to_scan):
             rv |= check_license(license, licenses, path)
+            rv |= check_copyright(copyright, copyright_holders, path)
     elif os.path.isfile(path_to_scan):
-        license = index.scan_file(path_to_scan)
+        license, copyright = index.scan_file(path_to_scan)
         rv |= check_license(license, licenses, path_to_scan)
+        rv |= check_copyright(copyright, copyright_holders, path_to_scan)
 
     raise SystemExit(rv)

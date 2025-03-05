@@ -154,14 +154,14 @@ if __name__ == '__main__':
     rv = 0
 
     index = Index()
-    path_to_scan = sys.argv[2:]
-    if path_to_scan is None:
-        path_to_scan = '.'
+    path_to_scan = '.'
+    if sys.argv[1:]:
+        path_to_scan = sys.argv[1:][-1]
     if os.path.isdir(path_to_scan):
         for (path, license) in index.scan(path_to_scan):
             rv |= check_license(license, licenses, path)
-    else:
+    elif os.path.isfile(path_to_scan):
         license = index.scan_file(path_to_scan)
-        rv |= check_license(license, licenses, file)
+        rv |= check_license(license, licenses, path_to_scan)
 
     raise SystemExit(rv)
